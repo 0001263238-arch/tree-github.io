@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Oxicorte 3D · Monitoramento de gases</title>
+<style>
+:root{color-scheme:dark;--bg:#0f1419;--fg:#e6edf3}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;overflow:hidden;touch-action:none}
+canvas{display:block}
+#h{position:fixed;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top,0px) + 8px) 12px 0;display:flex;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;pointer-events:none;flex-wrap:wrap}
+#h span{border-bottom:2px solid #4b6a88;padding-bottom:2px}
+#t{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);font-size:12px;opacity:.7;pointer-events:none}
+</style></head><body>
+<div id="h"><span>Gas Supply</span><span>Sensing &amp; Control</span><span>Data Monitoring</span></div>
+<div id="t">Arraste para girar · role para zoom</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const R=new THREE.WebGLRenderer({antialias:true});
+R.setSize(innerWidth,innerHeight);R.setPixelRatio(Math.min(devicePixelRatio,2));
+document.body.appendChild(R.domElement);
+const S=new THREE.Scene();S.background=new THREE.Color(0x0f1419);
+const C=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,100);
+let zoom=1;
+function fit(){C.aspect=innerWidth/innerHeight;C.updateProjectionMatrix();
+  const d=Math.max(15,Math.min(36,8/(0.414*C.aspect)))*zoom;C.position.set(0,5.5,d);C.lookAt(0,2.2,0)}
+fit();
+S.add(new THREE.HemisphereLight(0xffffff,0x334455,.9));
+const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(4,9,7);S.add(dl);
+const P=new THREE.Group();S.add(P);
+const G=new THREE.Group();G.position.x=-1.9;P.add(G);
+const M=(c,m=.6,r=.4)=>new THREE.MeshStandardMaterial({color:c,metalness:m,roughness:r});
+function add(geo,mat,x,y,z,p){const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);(p||G).add(m);return m}
+const BR=M(0xb8a24a,.9,.3),ST=M(0xb9c0c8,.6,.35);
+
+add(new THREE.CylinderGeometry(10,10,.1,64),M(0x1c242d,.2,.8),1.9,-.05,0);
+const grid=new THREE.GridHelper(20,40,0x2a3a4a,0x1f2b36);grid.position.set(1.9,.01,0);G.add(grid);
+
+function label(txt,x,y,z,s=1){
+  const c=document.createElement('canvas');c.width=512;c.height=80;const k=c.getContext('2d');
+  k.fillStyle='rgba(15,20,25,.8)';k.fillRect(0,8,512,64);k.strokeStyle='#4b6a88';k.strokeRect(1,9,510,62);
+  k.fillStyle='#e6edf3';k.font='bold 32px system-ui,sans-serif';k.textAlign='center';k.fillText(txt,256,54);
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true}));
+  sp.position.set(x,y,z);sp.scale.set(2*s,.31*s,1);G.add(sp);
+}
+function display(w,h){
+  const c=document.createElement('canvas');c.width=256;c.height=Math.round(256*h/w);
+  const t=new THREE.CanvasTexture(c);
+  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:t}));
+  return {mesh,set(a,b,col){const x=c.getContext('2d');x.fillStyle='#021a12';x.fillRect(0,0,c.width,c.height);
+    x.textAlign='center';x.fillStyle=col;x.font='bold '+c.height*.42+'px monospace';x.fillText(a,c.width/2,c.height*.52);
+    x.fillStyle='#7fe8c8';x.font=c.height*.22+'px monospace';x.fillText(b,c.width/2,c.height*.9);t.needsUpdate=true}};
+}
+function gauge(x,y,z,p){
+  const d=add(new THREE.CylinderGeometry(.15,.15,.05,24),M(0xf4f4f0,.2,.6),x,y,z,p);d.rotation.x=Math.PI/2;
+  add(new THREE.TorusGeometry(.15,.025,8,24),M(0x666666,.8,.3),x,y,z+.02,p);
+}
+function pipe(x1,x2,y,z,r=.04,m=BR){const p=add(new THREE.CylinderGeometry(r,r,x2-x1,12),m,(x1+x2)/2,y,z);p.rotation.z=Math.PI/2}
+function tube(pts,col,r=.045){
+  const cv=new THREE.CatmullRomCurve3(pts.map(p=>new THREE.Vector3(...p)));
+  add(new THREE.TubeGeometry(cv,60,r,8),M(col,.1,.7),0,0,0);
+}
+function loadcell(x,z){
+  const g=new THREE.Group();g.position.set(x,0,z);G.add(g);
+  add(new THREE.BoxGeometry(1.5,.14,1.5),M(0x7b858f,.6,.5),0,.07,0,g);
+  add(new THREE.BoxGeometry(1.3,.05,1.3),M(0xa5adb5,.7,.35),0,.165,0,g);
+  const d=display(.7,.22);d.mesh.position.set(0,.07,.76);g.add(d.mesh);return d;
+}
+function cyl(x,z,r,h,regCol){
+  const g=new THREE.Group();g.position.set(x,.19,z);G.add(g);
+  add(new THREE.CylinderGeometry(r,r,h,32),ST,0,h/2,0,g);
+  add(new THREE.SphereGeometry(r,32,16,0,Math.PI*2,0,Math.PI/2),ST,0,h,0,g);
+  add(new THREE.CylinderGeometry(.1,.12,.25,16),BR,0,h+r+.06,0,g);
+  add(new THREE.BoxGeometry(.5,.4,.4),M(regCol,.5,.4),.45,h+r+.12,0,g);
+  gauge(.28,h+r+.48,.12,g);gauge(.62,h+r+.48,.12,g);
+  const o=add(new THREE.CylinderGeometry(.05,.05,.25,12),BR,.78,h+r+.12,0,g);o.rotation.z=Math.PI/2;
+}
+// Suprimento de gás
+const sc1=loadcell(-4.5,-.4),sc2=loadcell(-2.3,1.4);
+cyl(-4.5,-.4,.4,3.2,0x2e9b4e);
+cyl(-2.3,1.4,.55,1.8,0xc23b3b);
+// medidor de vazão digital (O2) e corta-chamas
+const fmB=add(new THREE.BoxGeometry(.5,.45,.4),M(0x3a4552,.5,.5),-3.2,3.93,-.4);
+const fm=display(.4,.26);fm.mesh.position.set(-3.2,3.95,-.19);G.add(fm.mesh);
+pipe(-3.7,-3.45,3.93,-.4);pipe(-2.95,-2.75,3.93,-.4);
+pipe(-2.75,-2.25,3.93,-.4,.09);pipe(-1.6,-1.45,2.8,1.4);pipe(-1.45,-.95,2.8,1.4,.09);
+// maçarico
+const T=new THREE.Group();T.position.set(.23,2.3,1);G.add(T);
+const steel=M(0xc9d1d9,.9,.25);
+add(new THREE.CylinderGeometry(.07,.07,1.5,16),steel,.35,0,0,T).rotation.z=Math.PI/2;
+add(new THREE.BoxGeometry(.62,.5,.5),M(0x2b3440,.6,.4),-.7,0,0,T);
+add(new THREE.CylinderGeometry(.07,.07,.12,16),M(0x2e9b4e,.7,.3),-.8,.31,.1,T);
+add(new THREE.CylinderGeometry(.07,.07,.12,16),M(0xc23b3b,.7,.3),-.6,.31,.1,T);
+const lev=add(new THREE.BoxGeometry(.6,.03,.1),M(0x8a95a1,.8,.3),.55,.17,0,T);lev.rotation.z=.12;
+add(new THREE.CylinderGeometry(.04,.04,.6,12),steel,1.3,0,0,T).rotation.z=Math.PI/2;
+const head=new THREE.Group();head.position.set(1.6,0,0);head.rotation.z=Math.PI/3;T.add(head);
+add(new THREE.CylinderGeometry(.09,.09,.3,16),BR,0,0,0,head);
+add(new THREE.CylinderGeometry(.07,.05,.35,16),BR,0,-.3,0,head);
+add(new THREE.ConeGeometry(.05,.15,16),M(0x8a6a2a,.8,.4),0,-.55,0,head).rotation.x=Math.PI;
+const fl=add(new THREE.ConeGeometry(.07,.7,16),new THREE.MeshBasicMaterial({color:0x66b8ff,transparent:true,opacity:.75}),0,-1,0,head);fl.rotation.x=Math.PI;
+const fi=add(new THREE.ConeGeometry(.035,.4,16),new THREE.MeshBasicMaterial({color:0xffffff}),0,-.85,0,head);fi.rotation.x=Math.PI;
+// mangueiras
+tube([[-2.25,3.93,-.4],[-1.8,3.2,-.2],[-1.2,2.7,.3],[-.8,2.4,.6],[-.65,2.3,.75]],0x2e9b4e);
+tube([[-.95,2.8,1.4],[-.7,2.6,1.55],[-.4,2.35,1.5],[-.3,2.3,1.25]],0xc23b3b);
+// mesa de corte
+const tb=M(0x4a5662,.7,.5);
+add(new THREE.BoxGeometry(3.4,.12,2.2),tb,3,1.5,1);
+add(new THREE.BoxGeometry(2.8,.08,1.6),M(0x9aa5b1,.85,.3),3,1.6,1);
+[[-1.55,-.95],[1.55,-.95],[-1.55,.95],[1.55,.95]].forEach(p=>add(new THREE.BoxGeometry(.12,1.44,.12),tb,3+p[0],.72,1+p[1]));
+add(new THREE.BoxGeometry(3.1,.08,.08),tb,3,.5,1.95);add(new THREE.BoxGeometry(3.1,.08,.08),tb,3,.5,.05);
+// faíscas
+const N=140,sp=new Float32Array(N*3),sv=new Float32Array(N*3),TIP=[3,1.66,1];
+const SG=new THREE.BufferGeometry();SG.setAttribute('position',new THREE.BufferAttribute(sp,3));
+const sparks=new THREE.Points(SG,new THREE.PointsMaterial({color:0xffb347,size:.07,transparent:true,opacity:.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+sparks.frustumCulled=false;G.add(sparks);
+function resp(i){sp[i*3]=TIP[0];sp[i*3+1]=TIP[1];sp[i*3+2]=TIP[2];const a=Math.random()*6.28,s=.01+Math.random()*.05;
+  sv[i*3]=Math.cos(a)*s;sv[i*3+1]=.02+Math.random()*.06;sv[i*3+2]=Math.sin(a)*s}
+for(let i=0;i<N;i++)resp(i);
+const gl=new THREE.PointLight(0xff9a3c,1.6,3);gl.position.set(3,1.9,1);G.add(gl);
+// caixa Arduino / ESP32
+add(new THREE.BoxGeometry(1.9,1.4,.18),M(0x8a95a1,.6,.5),2.3,3.9,-2);
+add(new THREE.PlaneGeometry(1.5,1),new THREE.MeshStandardMaterial({color:0x1a6fa8,roughness:.6}),2.3,3.9,-1.9);
+add(new THREE.BoxGeometry(.5,.3,.05),M(0x111111,.3,.6),2.3,3.9,-1.87);
+add(new THREE.BoxGeometry(.3,.2,.08),M(0xc0c0c0,.9,.3),1.8,4.15,-1.86);
+const leds=[0x39ff7a,0xffd23a,0xff4d4d].map((c,i)=>add(new THREE.SphereGeometry(.05,12,12),new THREE.MeshBasicMaterial({color:c}),2.0+i*.25,3.55,-1.86));
+// torre de rede
+add(new THREE.CylinderGeometry(.03,.14,3.6,8),M(0x8a95a1,.7,.4),5.2,1.8,-2);
+add(new THREE.SphereGeometry(.07,12,12),M(0xff4d4d,.2,.4),5.2,3.65,-2);
+const waves=[0,1,2].map(()=>add(new THREE.TorusGeometry(.3,.015,8,32),new THREE.MeshBasicMaterial({color:0x6fb6ff,transparent:true}),5.2,3.75,-2));
+// fios de sinal (laranja)
+const OR=0xe0922a;
+tube([[-4.5,.07,.36],[-4.5,.1,-1.6],[-1,.1,-2],[1.6,1.5,-2],[1.8,3.2,-1.9]],OR,.018);
+tube([[-2.3,.07,2.16],[-1.5,.1,-1],[0,.1,-2],[1.5,1.5,-2],[2.1,3.2,-1.9]],OR,.018);
+tube([[-3.2,4.2,-.4],[-2,4.5,-1.4],[.8,4.3,-2],[1.3,3.95,-1.95]],OR,.018);
+tube([[3.25,4,-2],[4.2,4.1,-2],[5.2,3.7,-2]],OR,.018);
+tube([[5.2,3.7,-2],[6.4,3.5,-1.4],[7.0,3.3,-1.2]],OR,.018);
+// dashboard
+const D=new THREE.Group();D.position.set(7.6,0,-.8);D.rotation.y=-.45;G.add(D);
+add(new THREE.BoxGeometry(2.7,3.7,.16),M(0x1d242c,.5,.5),0,2.5,0,D);
+add(new THREE.BoxGeometry(.3,.6,.12),M(0x1d242c,.5,.5),0,.4,0,D);
+add(new THREE.BoxGeometry(1.2,.1,.6),M(0x1d242c,.5,.5),0,.05,0,D);
+const dc=document.createElement('canvas');dc.width=500;dc.height=700;const dx=dc.getContext('2d');
+const dt=new THREE.CanvasTexture(dc);
+add(new THREE.PlaneGeometry(2.5,3.5),new THREE.MeshBasicMaterial({map:dt}),0,2.5,.09,D);
+const hO=Array(60).fill(95),hF=Array(60).fill(45);
+let w1=9.8,w2=14.6,cost=1.4,flow=24,alert=false;
+const fmt=(v,d=2)=>v.toFixed(d).replace('.',',');
+function panel(y,h,col){dx.fillStyle='#101a25';dx.fillRect(15,y,470,h);dx.strokeStyle=col;dx.lineWidth=2;dx.strokeRect(15,y,470,h)}
+function chart(a,col,name,y,h){
+  dx.fillStyle=col;dx.font='13px sans-serif';dx.textAlign='left';dx.fillText(name,30,y-4);
+  dx.strokeStyle='#2a3a4a';dx.lineWidth=1;dx.strokeRect(30,y,440,h);
+  dx.strokeStyle=col;dx.lineWidth=2;dx.beginPath();
+  a.forEach((v,i)=>{const px=30+i*440/59,py=y+h-v/130*h;i?dx.lineTo(px,py):dx.moveTo(px,py)});dx.stroke();
+}
+function drawDash(){
+  dx.fillStyle='#070c12';dx.fillRect(0,0,500,700);dx.textAlign='center';
+  dx.fillStyle='#cfe3f5';dx.font='bold 17px sans-serif';dx.fillText('PROTÓTIPO DE MONITORAMENTO',250,26);dx.fillText('GASES DE CORTE',250,48);
+  panel(58,215,'#2a4a68');dx.fillStyle='#fff';dx.font='bold 20px sans-serif';dx.fillText('FLUXO DE GASES',250,84);
+  chart(hO,'#3be07a','O2',108,65);chart(hF,'#ff4d4d','COMBUSTÍVEL',198,65);
+  panel(285,125,'#2a4a68');dx.fillStyle='#fff';dx.font='bold 20px sans-serif';dx.fillText('PESO ATUAL',250,311);
+  dx.font='bold 40px monospace';dx.textAlign='left';
+  dx.fillStyle='#3be07a';dx.fillText(fmt(w1),40,358);dx.fillStyle='#ff4d4d';dx.fillText(fmt(w2),40,398);
+  dx.font='16px sans-serif';dx.fillStyle='#ddd';dx.fillText('(kg)',190,358);dx.fillText('(kg)',190,398);
+  dx.fillStyle='#3be07a';dx.fillText('▼ Δ '+fmt(w1-9.8),300,358);dx.fillStyle='#ff4d4d';dx.fillText('▼ Δ '+fmt(w2-14.6),300,398);
+  panel(422,95,'#2a4a68');dx.textAlign='center';dx.fillStyle='#fff';dx.font='bold 20px sans-serif';dx.fillText('ESTIMATIVA DE CUSTO',250,448);
+  dx.fillStyle='#ffd23a';dx.font='bold 38px sans-serif';dx.fillText('R$ '+fmt(cost),250,495);
+  panel(530,155,alert?'#ff4d4d':'#2f8f55');dx.fillStyle='#fff';dx.font='bold 20px sans-serif';dx.fillText('AUDITORIA DE VAZAMENTO',250,558);
+  dx.font='bold 24px sans-serif';dx.fillStyle=alert?'#ff4d4d':'#3be07a';dx.fillText(alert?'STATUS: ALERTA ⚠':'STATUS: NORMAL ✓',250,596);
+  dx.font='16px sans-serif';dx.fillStyle='#3be07a';dx.fillText('● O2 sem alerta',250,632);
+  dx.fillStyle=alert?'#ff4d4d':'#3be07a';dx.fillText(alert?'● ALERTA DE VAZAMENTO COMBUSTÍVEL!':'● Combustível sem alerta',250,660);
+  dt.needsUpdate=true;
+}
+function tick(t){
+  flow+=(Math.random()-.5)*1.2;flow=Math.max(20,Math.min(28,flow));
+  hO.push(Math.max(70,Math.min(125,hO[59]+(Math.random()-.5)*14)));hO.shift();
+  hF.push(Math.max(25,Math.min(70,hF[59]+(Math.random()-.5)*8)));hF.shift();
+  w1-=.003;w2-=.002;cost+=.002;alert=(t/1000)%20>17;
+  fm.set(flow.toFixed(1),'L/min O2','#6fe0a8');
+  sc1.set(fmt(w1)+' kg','CÉLULA DE CARGA','#3be07a');sc2.set(fmt(w2)+' kg','CÉLULA DE CARGA','#ff6b6b');
+  drawDash();
+}
+// rótulos
+label('Cilindro O2',-4.5,2.2,.7,.8);label('Cilindro Combustível',-2.3,1.1,2.2,.8);
+label('Regulador',-4.1,4.75,-.4,.7);label('Medidor de Vazão Digital',-3.0,4.6,-.4,.8);
+label('Corta-Chama',-2.4,3.55,-.4,.7);label('Regulador',-1.7,3.45,1.4,.7);label('Corta-Chama',-1.2,2.35,1.4,.7);
+label('Balança / Célula de Carga',-4.5,.0,1.4,.8);label('Balança / Célula de Carga',-2.3,.0,2.7,.8);
+label('Maçarico Oxicorte',.5,3.3,1,.8);label('Arduino / ESP32',2.3,4.85,-2,.8);
+label('Rede',5.2,4.4,-2,.6);label('Dashboard / Rede',7.6,4.7,-.8,.8);
+// controles
+let drag=false,lx=0,auto=true;
+R.domElement.addEventListener('pointerdown',e=>{drag=true;auto=false;lx=e.clientX});
+addEventListener('pointerup',()=>drag=false);
+addEventListener('pointermove',e=>{if(drag){P.rotation.y+=(e.clientX-lx)*.008;lx=e.clientX}});
+addEventListener('wheel',e=>{zoom=Math.min(1.5,Math.max(.5,zoom+e.deltaY*.0008));fit()},{passive:true});
+addEventListener('resize',()=>{R.setSize(innerWidth,innerHeight);fit()});
+tick(0);let last=0;
+(function loop(t){
+  if(auto)P.rotation.y=Math.sin(t*.0003)*.45;
+  if(t-last>250){last=t;tick(t)}
+  const k=1+Math.sin(t*.04)*.08+Math.random()*.05;fl.scale.set(1,k,1);fi.scale.set(1,k,1);gl.intensity=1.2+Math.random()*.8;
+  for(let i=0;i<N;i++){sv[i*3+1]-=.003;sp[i*3]+=sv[i*3];sp[i*3+1]+=sv[i*3+1];sp[i*3+2]+=sv[i*3+2];if(sp[i*3+1]<1.62)resp(i)}
+  SG.attributes.position.needsUpdate=true;
+  leds.forEach((l,i)=>l.visible=Math.sin(t*.006+i*2)>-.2);
+  waves.forEach((w,i)=>{const ph=((t*.0008)+i/3)%1;w.scale.setScalar(.4+ph*2.2);w.material.opacity=1-ph});
+  R.render(S,C);requestAnimationFrame(loop);
+})(0);
+</script></body></html>
